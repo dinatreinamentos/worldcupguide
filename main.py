@@ -1,19 +1,9 @@
-from scraper.cnn_scraper import extrair_jogadores
-from generators.excel_generator import salvar_excel
+import requests
 
+from scraper.cnn_scraper import URL, HEADERS
 
-def main():
+r = requests.get(URL, headers=HEADERS)
 
-    print("🌎 Iniciando pipeline da Copa 2026...\n")
-
-    df = extrair_jogadores()
-
-    print(df.head())
-
-    salvar_excel(df)
-
-    print("\n✅ Processo concluído com sucesso!")
-
-
-if __name__ == "__main__":
-    main()
+print("STATUS:", r.status_code)
+print("SIZE:", len(r.text))
+print(r.text[:1000])
