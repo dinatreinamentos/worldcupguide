@@ -1,18 +1,9 @@
 import re
-import requests
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 
 URL = "https://www.cnnbrasil.com.br/esportes/futebol/copa-do-mundo/listas-convocados-todas-48-selecoes-copa-do-mundo-2026/"
-
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0 Safari/537.36"
-    )
-}
 
 
 CATEGORIAS = {
@@ -23,93 +14,62 @@ CATEGORIAS = {
 }
 
 
-def limpar(texto):
-    texto = re.sub(r"\(.*?\)", "", texto)
-    return texto.replace(".", "").replace(";", "").strip()
-
-
-def eh_categoria(linha):
-    return any(linha.startswith(c + ":") for c in CATEGORIAS)
-
-
-def get_categoria(linha):
-    for c in CATEGORIAS:
-        if linha.startswith(c + ":"):
-            return c
-    return None
-
-
-def eh_selecao(linha):
-    if "(" in linha and "pré-lista" in linha.lower():
-        return False
-    if len(linha) > 50:
-        return False
-    if ":" in linha:
-        return False
-    if "grupo" in linha.lower():
-        return False
-    return True
+def limpar(t):
+    return re.sub(r"\(.*?\)", "", t).strip()
 
 
 def extrair_jogadores():
 
-    r = requests.get(URL, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-
-    texto = r.text
-
-    # quebra tudo em linhas reais
-    linhas = [
-        l.strip()
-        for l in texto.split("\n")
-        if l.strip()
-    ]
-
     dados = []
 
+    with sync_playwright() as p:
+
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox"]
+        )
+
+        page = browser.new_page()
+
+        page.goto(URL, wait_until="networkidle", timeout=60000)
+
+        html = page.content()
+
+        browser.close()
+
+    # parsing simples em cima do HTML renderizado
+    linhas = re.split(r"<[^>]+>", html)
+
     selecao = None
-    ignorar = False
 
     for linha in linhas:
 
-        # Detecta seleção com pré-lista
-        if eh_selecao(linha):
+        linha = linha.strip()
 
+        if not linha:
+            continue
+
+        if len(linha) < 40 and ":" not in linha:
             selecao = linha
 
-            if "pré-lista" in linha.lower():
-                ignorar = True
-            else:
-                ignorar = False
+        for cat in CATEGORIAS:
 
-            continue
+            if linha.startswith(cat + ":"):
 
-        if ignorar:
-            continue
+                jogadores = linha.replace(cat + ":", "")
+                jogadores = jogadores.replace(" e ", ",").split(",")
 
-        # Detecta categorias
-        if eh_categoria(linha):
+                for j in jogadores:
 
-            cat = get_categoria(linha)
+                    j = limpar(j)
 
-            bloco = linha.split(":", 1)[1]
+                    if len(j) > 1:
 
-            bloco = bloco.replace(" e ", ",")
-
-            jogadores = [j.strip() for j in bloco.split(",")]
-
-            for j in jogadores:
-
-                j = limpar(j)
-
-                if len(j) < 2:
-                    continue
-
-                dados.append({
-                    "selecao": selecao,
-                    "jogador": j,
-                    "posicao": cat,
-                    "categoria_base": CATEGORIAS[cat]
-                })
+                        dados.append({
+                            "selecao": selecao,
+                            "jogador": j,
+                            "posicao": cat,
+                            "categoria_base": CATEGORIAS[cat]
+                        })
 
     return pd.DataFrame(dados).drop_duplicates()
