@@ -1,9 +1,6 @@
-# scraper/cnn_scraper.py
-
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from pathlib import Path
 
 
 URL = "https://www.cnnbrasil.com.br/esportes/futebol/copa-do-mundo/listas-convocados-todas-48-selecoes-copa-do-mundo-2026/"
@@ -18,35 +15,22 @@ HEADERS = {
 }
 
 
-def normalizar_categoria(posicao):
-    posicao = posicao.lower()
+MAPA_CATEGORIAS = {
+    "Goleiros": "goleiro",
+    "Defensores": "defesa",
+    "Meio-campistas": "meio-campo",
+    "Atacantes": "ataque"
+}
 
-    if any(x in posicao for x in [
-        "atacante",
-        "ponta",
-        "centroavante",
-        "segundo atacante"
-    ]):
-        return "ataque"
 
-    if any(x in posicao for x in [
-        "meia",
-        "volante",
-        "meio-campista"
-    ]):
-        return "meio-campo"
+def limpar_nome(nome):
 
-    if any(x in posicao for x in [
-        "zagueiro",
-        "lateral",
-        "defensor"
-    ]):
-        return "defesa"
+    nome = nome.strip()
 
-    if "goleiro" in posicao:
-        return "goleiro"
+    nome = nome.replace(";", "")
+    nome = nome.replace(".", "")
 
-    return "desconhecido"
+    return nome
 
 
 def extrair_jogadores():
@@ -69,80 +53,62 @@ def extrair_jogadores():
     selecao_atual = None
 
     elementos = soup.find_all(
-        ["h2", "h3", "li"]
+        ["h3", "li"]
     )
 
     for elemento in elementos:
 
         texto = elemento.get_text(
+            " ",
             strip=True
         )
 
-        if elemento.name in ["h2", "h3"]:
+        # Seleções
+        if elemento.name == "h3":
 
             texto_limpo = texto.strip()
 
             if (
                 len(texto_limpo) <= 40
-                and "Convocados" not in texto_limpo
+                and "Grupo" not in texto_limpo
             ):
                 selecao_atual = texto_limpo
 
+        # Jogadores
         elif elemento.name == "li":
 
-            if " - " not in texto:
-                continue
+            for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
 
-            partes = texto.split(" - ")
+                prefixo = f"{categoria_texto}:"
 
-            if len(partes) < 2:
-                continue
+                if texto.startswith(prefixo):
 
-            jogador = partes[0].strip()
-            posicao = partes[1].strip()
+                    jogadores_texto = texto.replace(
+                        prefixo,
+                        ""
+                    ).strip()
 
-            categoria = normalizar_categoria(
-                posicao
-            )
+                    jogadores_texto = jogadores_texto.replace(
+                        " e ",
+                        ", "
+                    )
 
-            dados.append({
-                "selecao": selecao_atual,
-                "jogador": jogador,
-                "posicao": posicao,
-                "categoria_base": categoria
-            })
+                    jogadores = jogadores_texto.split(",")
+
+                    for jogador in jogadores:
+
+                        jogador = limpar_nome(
+                            jogador
+                        )
+
+                        if not jogador:
+                            continue
+
+                        dados.append({
+                            "selecao": selecao_atual,
+                            "jogador": jogador,
+                            "posicao": categoria_texto,
+                            "categoria_base": categoria_base
+                        })
 
     return pd.DataFrame(dados)
-
-
-def salvar_excel(df):
-
-    Path("output").mkdir(
-        exist_ok=True
-    )
-
-    caminho = "output/copa_2026_base.xlsx"
-
-    df.to_excel(
-        caminho,
-        index=False
-    )
-
-    print("\n✅ Planilha criada com sucesso!")
-    print(f"📁 Arquivo: {caminho}")
-    print(f"📊 Total de jogadores: {len(df)}")
-
-
-def main():
-
-    print("🌎 Lendo dados da CNN...\n")
-
-    df = extrair_jogadores()
-
-    print(df.head())
-
-    salvar_excel(df)
-
-
-if __name__ == "__main__":
-    main()
