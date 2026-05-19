@@ -1,6 +1,7 @@
 name: Copa 2026 Pipeline
 
 on:
+
   workflow_dispatch:
 
   schedule:
@@ -14,7 +15,7 @@ jobs:
 
     steps:
 
-      - name: Checkout
+      - name: Checkout repositório
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -30,12 +31,12 @@ jobs:
         run: |
           playwright install
 
-      - name: Rodar pipeline
+      - name: Executar pipeline
         run: |
           python main.py
 
       - name: Upload XLSX
         uses: actions/upload-artifact@v4
         with:
-          name: copa-2026-xlsx
+          name: copa-2026-planilha
           path: output/
