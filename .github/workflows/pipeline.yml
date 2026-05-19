@@ -1,0 +1,41 @@
+name: Copa 2026 Pipeline
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          pip install -r requirements.txt
+
+      - name: Instalar Playwright
+        run: |
+          playwright install
+
+      - name: Rodar pipeline
+        run: |
+          python main.py
+
+      - name: Upload XLSX
+        uses: actions/upload-artifact@v4
+        with:
+          name: copa-2026-xlsx
+          path: output/
