@@ -1,5 +1,7 @@
+import re
 import requests
 import pandas as pd
+
 from bs4 import BeautifulSoup
 
 
@@ -27,10 +29,27 @@ def limpar_nome(nome):
 
     nome = nome.strip()
 
+    nome = re.sub(r"\(.*?\)", "", nome)
+
     nome = nome.replace(";", "")
     nome = nome.replace(".", "")
 
-    return nome
+    return nome.strip()
+
+
+def eh_pre_lista(texto):
+
+    texto = texto.lower()
+
+    palavras = [
+        "pré-lista",
+        "pre-lista",
+        "lista preliminar",
+        "possíveis convocados",
+        "aguardando convocação"
+    ]
+
+    return any(p in texto for p in palavras)
 
 
 def extrair_jogadores():
@@ -52,63 +71,83 @@ def extrair_jogadores():
 
     selecao_atual = None
 
-    elementos = soup.find_all(
-        ["h3", "li"]
+    artigos = soup.find_all(
+        ["h2", "h3", "p", "li"]
     )
 
-    for elemento in elementos:
+    for elemento in artigos:
 
         texto = elemento.get_text(
             " ",
             strip=True
         )
 
-        # Seleções
-        if elemento.name == "h3":
+        if not texto:
+            continue
+
+        # Ignorar pré-listas
+        if eh_pre_lista(texto):
+            continue
+
+        # Detectar seleção
+        if elemento.name in ["h2", "h3"]:
 
             texto_limpo = texto.strip()
 
             if (
                 len(texto_limpo) <= 40
-                and "Grupo" not in texto_limpo
+                and ":" not in texto_limpo
+                and "grupo" not in texto_limpo.lower()
+                and "convocados" not in texto_limpo.lower()
             ):
+
                 selecao_atual = texto_limpo
 
-        # Jogadores
-        elif elemento.name == "li":
+                print(f"\n🌎 Seleção encontrada: {selecao_atual}")
 
-            for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
+        # Buscar jogadores
+        for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
 
-                prefixo = f"{categoria_texto}:"
+            prefixo = f"{categoria_texto}:"
 
-                if texto.startswith(prefixo):
+            if texto.startswith(prefixo):
 
-                    jogadores_texto = texto.replace(
-                        prefixo,
-                        ""
-                    ).strip()
+                jogadores_texto = texto.replace(
+                    prefixo,
+                    ""
+                ).strip()
 
-                    jogadores_texto = jogadores_texto.replace(
-                        " e ",
-                        ", "
+                jogadores_texto = jogadores_texto.replace(
+                    " e ",
+                    ", "
+                )
+
+                jogadores = jogadores_texto.split(",")
+
+                for jogador in jogadores:
+
+                    jogador = limpar_nome(
+                        jogador
                     )
 
-                    jogadores = jogadores_texto.split(",")
+                    if len(jogador) <= 1:
+                        continue
 
-                    for jogador in jogadores:
+                    if jogador.lower() in [
+                        "nenhum",
+                        "não definido"
+                    ]:
+                        continue
 
-                        jogador = limpar_nome(
-                            jogador
-                        )
+                    dados.append({
+                        "selecao": selecao_atual,
+                        "jogador": jogador,
+                        "posicao": categoria_texto,
+                        "categoria_base": categoria_base
+                    })
 
-                        if not jogador:
-                            continue
+    df = pd.DataFrame(dados)
 
-                        dados.append({
-                            "selecao": selecao_atual,
-                            "jogador": jogador,
-                            "posicao": categoria_texto,
-                            "categoria_base": categoria_base
-                        })
+    df = df.drop_duplicates()
 
-    return pd.DataFrame(dados)
+    return df
