@@ -14,8 +14,8 @@ CATEGORIAS = {
 }
 
 
-def limpar(t):
-    return re.sub(r"\(.*?\)", "", t).strip()
+def limpar(texto):
+    return re.sub(r"\(.*?\)", "", texto).replace(".", "").replace(";", "").strip()
 
 
 def extrair_jogadores():
@@ -31,13 +31,16 @@ def extrair_jogadores():
 
         page = browser.new_page()
 
+        print("🌐 Abrindo página com Playwright...")
+
         page.goto(URL, wait_until="networkidle", timeout=60000)
 
         html = page.content()
 
         browser.close()
 
-    # parsing simples em cima do HTML renderizado
+    print("📄 HTML capturado com sucesso")
+
     linhas = re.split(r"<[^>]+>", html)
 
     selecao = None
@@ -49,27 +52,36 @@ def extrair_jogadores():
         if not linha:
             continue
 
-        if len(linha) < 40 and ":" not in linha:
+        # Detecta seleção (heurística simples)
+        if len(linha) < 50 and ":" not in linha and "Grupo" not in linha:
+
             selecao = linha
 
+        # Detecta categorias
         for cat in CATEGORIAS:
 
             if linha.startswith(cat + ":"):
 
                 jogadores = linha.replace(cat + ":", "")
-                jogadores = jogadores.replace(" e ", ",").split(",")
+                jogadores = jogadores.replace(" e ", ",")
+                jogadores = jogadores.split(",")
 
                 for j in jogadores:
 
                     j = limpar(j)
 
-                    if len(j) > 1:
+                    if len(j) < 2:
+                        continue
 
-                        dados.append({
-                            "selecao": selecao,
-                            "jogador": j,
-                            "posicao": cat,
-                            "categoria_base": CATEGORIAS[cat]
-                        })
+                    dados.append({
+                        "selecao": selecao,
+                        "jogador": j,
+                        "posicao": cat,
+                        "categoria_base": CATEGORIAS[cat]
+                    })
 
-    return pd.DataFrame(dados).drop_duplicates()
+    df = pd.DataFrame(dados).drop_duplicates()
+
+    print(f"📊 Total de jogadores encontrados: {len(df)}")
+
+    return df
