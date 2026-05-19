@@ -1,7 +1,6 @@
 import re
 import requests
 import pandas as pd
-
 from bs4 import BeautifulSoup
 
 
@@ -17,7 +16,7 @@ HEADERS = {
 }
 
 
-MAPA_CATEGORIAS = {
+CATEGORIAS = {
     "Goleiros": "goleiro",
     "Defensores": "defesa",
     "Meio-campistas": "meio-campo",
@@ -25,156 +24,83 @@ MAPA_CATEGORIAS = {
 }
 
 
-def limpar_nome(nome):
-
-    nome = nome.strip()
-
-    nome = re.sub(r"\(.*?\)", "", nome)
-
-    nome = nome.replace(";", "")
-    nome = nome.replace(".", "")
-
-    return nome.strip()
-
-
-def eh_grupo(texto):
-
-    return texto.startswith("Grupo ")
+def limpar(texto):
+    texto = re.sub(r"\(.*?\)", "", texto)
+    return texto.replace(".", "").replace(";", "").strip()
 
 
 def eh_pre_lista(texto):
-
     return "(pré-lista)" in texto.lower()
-
-
-def eh_selecao(texto):
-
-    texto = texto.strip()
-
-    if ":" in texto:
-        return False
-
-    if eh_grupo(texto):
-        return False
-
-    if len(texto) > 40:
-        return False
-
-    return True
-
-
-def processar_linha_jogadores(
-    linha,
-    selecao,
-    dados
-):
-
-    for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
-
-        prefixo = f"{categoria_texto}:"
-
-        if linha.startswith(prefixo):
-
-            jogadores_texto = linha.replace(
-                prefixo,
-                ""
-            ).strip()
-
-            jogadores_texto = jogadores_texto.replace(
-                " e ",
-                ", "
-            )
-
-            jogadores = jogadores_texto.split(",")
-
-            for jogador in jogadores:
-
-                jogador = limpar_nome(
-                    jogador
-                )
-
-                if not jogador:
-                    continue
-
-                dados.append({
-                    "selecao": selecao,
-                    "jogador": jogador,
-                    "posicao": categoria_texto,
-                    "categoria_base": categoria_base
-                })
 
 
 def extrair_jogadores():
 
-    response = requests.get(
-        URL,
-        headers=HEADERS,
-        timeout=30
-    )
+    r = requests.get(URL, headers=HEADERS, timeout=30)
+    r.raise_for_status()
 
-    response.raise_for_status()
-
-    soup = BeautifulSoup(
-        response.text,
-        "lxml"
-    )
-
-    texto = soup.get_text("\n")
-
-    linhas = [
-        linha.strip()
-        for linha in texto.split("\n")
-        if linha.strip()
-    ]
+    soup = BeautifulSoup(r.text, "lxml")
 
     dados = []
 
     selecao_atual = None
+    categoria_atual = None
+    ignorar = False
 
-    ignorar_bloco = False
+    # Trabalhar por blocos reais (parágrafos + headings)
+    elementos = soup.find_all(["h2", "h3", "p"])
 
-    for linha in linhas:
+    for el in elementos:
 
-        # Ignorar grupos
-        if eh_grupo(linha):
+        texto = el.get_text(" ", strip=True)
+
+        if not texto:
             continue
 
-        # Detectar seleção
-        if eh_selecao(linha):
+        # Detecta seleção (ex: "Coreia do Sul")
+        if el.name in ["h2", "h3"]:
 
-            if eh_pre_lista(linha):
-
-                ignorar_bloco = True
-
+            if "(" in texto and "pré-lista" in texto.lower():
+                ignorar = True
                 selecao_atual = None
-
-                print(f"⛔ Ignorando pré-lista: {linha}")
-
+                categoria_atual = None
                 continue
 
-            ignorar_bloco = False
-
-            selecao_atual = linha
-
-            print(f"🌎 Seleção encontrada: {linha}")
+            if len(texto) < 50 and "grupo" not in texto.lower():
+                selecao_atual = texto
+                ignorar = False
 
             continue
 
-        # Ignorar bloco inválido
-        if ignorar_bloco:
+        if ignorar or not selecao_atual:
             continue
 
-        # Processar jogadores
-        if selecao_atual:
+        # Detecta categoria
+        for cat in CATEGORIAS.keys():
 
-            processar_linha_jogadores(
-                linha,
-                selecao_atual,
-                dados
-            )
+            if texto.startswith(cat + ":"):
 
-    df = pd.DataFrame(dados)
+                categoria_atual = cat
 
-    df = df.drop_duplicates()
+                jogadores_texto = texto.replace(cat + ":", "").strip()
+
+                jogadores_texto = jogadores_texto.replace(" e ", ", ")
+
+                jogadores = jogadores_texto.split(",")
+
+                for j in jogadores:
+
+                    j = limpar(j)
+
+                    if len(j) < 2:
+                        continue
+
+                    dados.append({
+                        "selecao": selecao_atual,
+                        "jogador": j,
+                        "posicao": cat,
+                        "categoria_base": CATEGORIAS[cat]
+                    })
+
+    df = pd.DataFrame(dados).drop_duplicates()
 
     return df
