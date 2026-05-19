@@ -1,121 +1,70 @@
 import re
+import requests
 import pandas as pd
-from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 
 
-URL = "https://www.cnnbrasil.com.br/esportes/futebol/copa-do-mundo/listas-convocados-todas-48-selecoes-copa-do-mundo-2026/"
+URL = "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_squads"
 
 
-CATEGORIAS = {
-    "Goleiros": "goleiro",
-    "Defensores": "defesa",
-    "Meio-campistas": "meio-campo",
-    "Atacantes": "ataque"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
 }
 
 
 def limpar(texto):
-    texto = re.sub(r"\(.*?\)", "", texto)
-    texto = texto.replace(".", "").replace(";", "").strip()
-    return texto
+    return re.sub(r"\[.*?\]", "", texto).strip()
 
 
-def eh_categoria(linha):
-    return any(linha.startswith(cat + ":") for cat in CATEGORIAS)
+def extrair_squads():
 
+    r = requests.get(URL, headers=HEADERS, timeout=30)
+    r.raise_for_status()
 
-def get_categoria(linha):
-    for cat in CATEGORIAS:
-        if linha.startswith(cat + ":"):
-            return cat
-    return None
-
-
-def eh_selecao(linha):
-    if len(linha) > 60:
-        return False
-    if ":" in linha:
-        return False
-    if "Grupo" in linha:
-        return False
-    if "Copa do Mundo" in linha:
-        return False
-    return True
-
-
-def extrair_jogadores():
+    soup = BeautifulSoup(r.text, "lxml")
 
     dados = []
 
-    with sync_playwright() as p:
-
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox"]
-        )
-
-        page = browser.new_page()
-
-        print("🌐 Abrindo página...")
-
-        page.goto(URL, timeout=60000, wait_until="domcontentloaded")
-
-        # ESSENCIAL: não usar networkidle (quebra no CNN)
-        page.wait_for_timeout(5000)
-
-        html = page.content()
-
-        browser.close()
-
-    print("📄 HTML capturado com sucesso")
-
-    # quebra em texto puro
-    linhas = re.split(r"<[^>]+>", html)
-
     selecao_atual = None
+    posicao_atual = None
 
-    for linha in linhas:
+    # Wikipedia é estruturada em headings + listas
+    for tag in soup.find_all(["h2", "h3", "li"]):
 
-        linha = linha.strip()
+        texto = tag.get_text(" ", strip=True)
 
-        if not linha:
+        if not texto:
             continue
 
         # detectar seleção
-        if eh_selecao(linha):
-            selecao_atual = linha
+        if tag.name in ["h2", "h3"]:
+
+            if "squad" in texto.lower() or "group" in texto.lower():
+                continue
+
+            if len(texto) < 60:
+                selecao_atual = limpar(texto)
+                posicao_atual = None
+                continue
+
+        # detectar posição (goleiro, defesa etc - padrão Wikipedia)
+        if tag.name == "h3" and any(x in texto.lower() for x in ["goalkeeper", "defender", "midfielder", "forward"]):
+
+            posicao_atual = texto
             continue
 
-        if not selecao_atual:
-            continue
+        # jogadores
+        if tag.name == "li" and selecao_atual:
 
-        # detectar categoria + jogadores
-        if eh_categoria(linha):
+            jogador = limpar(texto)
 
-            cat = get_categoria(linha)
+            if len(jogador) < 2:
+                continue
 
-            bloco = linha.split(":", 1)[1]
+            dados.append({
+                "selecao": selecao_atual,
+                "jogador": jogador,
+                "posicao": posicao_atual or "unknown"
+            })
 
-            bloco = bloco.replace(" e ", ",")
-
-            jogadores = bloco.split(",")
-
-            for j in jogadores:
-
-                j = limpar(j)
-
-                if len(j) < 2:
-                    continue
-
-                dados.append({
-                    "selecao": selecao_atual,
-                    "jogador": j,
-                    "posicao": cat,
-                    "categoria_base": CATEGORIAS[cat]
-                })
-
-    df = pd.DataFrame(dados).drop_duplicates()
-
-    print(f"📊 Total de jogadores encontrados: {len(df)}")
-
-    return df
+    return pd.DataFrame(dados).drop_duplicates()
