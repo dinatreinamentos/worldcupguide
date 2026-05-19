@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 import re
+from io import StringIO
 
 
 URL = "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_squads"
@@ -19,7 +20,6 @@ def limpar(texto):
 
     texto = str(texto)
 
-    # remove refs [1]
     texto = re.sub(r"\[.*?\]", "", texto)
 
     texto = texto.strip()
@@ -41,8 +41,10 @@ def extrair_squads():
 
     print("📄 HTML carregado com sucesso")
 
-    # PASSA O HTML PARA O PANDAS
-    tabelas = pd.read_html(response.text)
+    # 🔥 CORREÇÃO AQUI
+    html_io = StringIO(response.text)
+
+    tabelas = pd.read_html(html_io)
 
     print(f"📊 Total de tabelas encontradas: {len(tabelas)}")
 
@@ -57,22 +59,22 @@ def extrair_squads():
                 for c in tabela.columns
             ]
 
-            # detectar tabelas com jogadores
+            colunas_texto = " ".join(colunas)
+
+            # tenta identificar tabelas de jogadores
             if not any(
-                x in " ".join(colunas)
-                for x in ["player", "name", "squad"]
+                x in colunas_texto
+                for x in ["player", "name", "pos."]
             ):
                 continue
 
-            print(f"✅ Tabela válida encontrada: {colunas}")
+            print(f"✅ Tabela válida encontrada")
 
             for _, row in tabela.iterrows():
 
-                valores = row.tolist()
-
                 valores = [
                     limpar(v)
-                    for v in valores
+                    for v in row.tolist()
                     if str(v) != "nan"
                 ]
 
@@ -81,9 +83,11 @@ def extrair_squads():
 
                 jogador = valores[0]
 
+                # ignora headers repetidos
                 if jogador.lower() in [
                     "player",
-                    "name"
+                    "name",
+                    "no."
                 ]:
                     continue
 
@@ -94,7 +98,7 @@ def extrair_squads():
 
         except Exception as e:
 
-            print(f"⚠️ erro tabela: {e}")
+            print(f"⚠️ erro em tabela: {e}")
 
             continue
 
