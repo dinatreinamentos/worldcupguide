@@ -1,70 +1,39 @@
-import re
-import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 
 
 URL = "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_squads"
 
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-
-def limpar(texto):
-    return re.sub(r"\[.*?\]", "", texto).strip()
-
-
 def extrair_squads():
 
-    r = requests.get(URL, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-
-    soup = BeautifulSoup(r.text, "lxml")
+    # Lê TODAS as tabelas da página
+    tabelas = pd.read_html(URL)
 
     dados = []
 
-    selecao_atual = None
-    posicao_atual = None
+    for tabela in tabelas:
 
-    # Wikipedia é estruturada em headings + listas
-    for tag in soup.find_all(["h2", "h3", "li"]):
+        colunas = [str(c).lower() for c in tabela.columns]
 
-        texto = tag.get_text(" ", strip=True)
+        # tenta identificar tabelas de elenco
+        if any("player" in c or "name" in c for c in colunas):
 
-        if not texto:
-            continue
+            for _, row in tabela.iterrows():
 
-        # detectar seleção
-        if tag.name in ["h2", "h3"]:
+                valores = row.dropna().tolist()
 
-            if "squad" in texto.lower() or "group" in texto.lower():
-                continue
+                if len(valores) < 2:
+                    continue
 
-            if len(texto) < 60:
-                selecao_atual = limpar(texto)
-                posicao_atual = None
-                continue
+                # heurística: último campo costuma ser posição/clube/etc
+                jogador = str(valores[0]).strip()
 
-        # detectar posição (goleiro, defesa etc - padrão Wikipedia)
-        if tag.name == "h3" and any(x in texto.lower() for x in ["goalkeeper", "defender", "midfielder", "forward"]):
+                if jogador.lower() in ["player", "name"]:
+                    continue
 
-            posicao_atual = texto
-            continue
-
-        # jogadores
-        if tag.name == "li" and selecao_atual:
-
-            jogador = limpar(texto)
-
-            if len(jogador) < 2:
-                continue
-
-            dados.append({
-                "selecao": selecao_atual,
-                "jogador": jogador,
-                "posicao": posicao_atual or "unknown"
-            })
+                dados.append({
+                    "jogador": jogador,
+                    "raw": " | ".join(map(str, valores))
+                })
 
     return pd.DataFrame(dados).drop_duplicates()
