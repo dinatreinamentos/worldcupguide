@@ -1,6 +1,8 @@
 import pandas as pd
 import requests
 import re
+
+from bs4 import BeautifulSoup
 from io import StringIO
 
 
@@ -22,9 +24,9 @@ def limpar(texto):
 
     texto = re.sub(r"\[.*?\]", "", texto)
 
-    texto = texto.strip()
+    texto = texto.replace("\n", " ")
 
-    return texto
+    return texto.strip()
 
 
 def extrair_squads():
@@ -41,71 +43,89 @@ def extrair_squads():
 
     print("📄 HTML carregado com sucesso")
 
-    # 🔥 CORREÇÃO AQUI
-    html_io = StringIO(response.text)
-
-    tabelas = pd.read_html(html_io)
-
-    print(f"📊 Total de tabelas encontradas: {len(tabelas)}")
+    soup = BeautifulSoup(response.text, "lxml")
 
     dados = []
 
-    for tabela in tabelas:
+    # headings das seleções
+    headings = soup.find_all(["h2", "h3"])
+
+    for heading in headings:
+
+        titulo = limpar(heading.get_text())
+
+        # ignorar grupos
+        if "group" in titulo.lower():
+            continue
+
+        # ignorar contents
+        if "contents" in titulo.lower():
+            continue
+
+        # pegar próxima tabela
+        tabela = heading.find_next("table", {"class": "wikitable"})
+
+        if tabela is None:
+            continue
 
         try:
 
-            colunas = [
-                str(c).lower()
-                for c in tabela.columns
-            ]
+            df = pd.read_html(
+                StringIO(str(tabela))
+            )[0]
 
-            colunas_texto = " ".join(colunas)
-
-            # tenta identificar tabelas de jogadores
-            if not any(
-                x in colunas_texto
-                for x in ["player", "name", "pos."]
-            ):
-                continue
-
-            print(f"✅ Tabela válida encontrada")
-
-            for _, row in tabela.iterrows():
-
-                valores = [
-                    limpar(v)
-                    for v in row.tolist()
-                    if str(v) != "nan"
-                ]
-
-                if len(valores) < 2:
-                    continue
-
-                jogador = valores[0]
-
-                # ignora headers repetidos
-                if jogador.lower() in [
-                    "player",
-                    "name",
-                    "no."
-                ]:
-                    continue
-
-                dados.append({
-                    "jogador": jogador,
-                    "dados_raw": " | ".join(valores)
-                })
-
-        except Exception as e:
-
-            print(f"⚠️ erro em tabela: {e}")
-
+        except:
             continue
 
-    df = pd.DataFrame(dados)
+        colunas = [
+            str(c).lower()
+            for c in df.columns
+        ]
 
-    df = df.drop_duplicates()
+        # validar tabela de elenco
+        if not any(
+            x in " ".join(colunas)
+            for x in ["player", "name", "club"]
+        ):
+            continue
 
-    print(f"\n📊 Total jogadores encontrados: {len(df)}")
+        print(f"✅ Seleção encontrada: {titulo}")
 
-    return df
+        for _, row in df.iterrows():
+
+            valores = [
+                limpar(v)
+                for v in row.tolist()
+                if str(v) != "nan"
+            ]
+
+            if len(valores) < 2:
+                continue
+
+            try:
+
+                jogador = valores[1]
+
+            except:
+                continue
+
+            # posição
+            posicao = valores[0]
+
+            clube = valores[-1]
+
+            dados.append({
+                "selecao": titulo,
+                "jogador": jogador,
+                "posicao": posicao,
+                "clube": clube,
+                "dados_raw": " | ".join(valores)
+            })
+
+    df_final = pd.DataFrame(dados)
+
+    df_final = df_final.drop_duplicates()
+
+    print(f"\n📊 Total jogadores encontrados: {len(df_final)}")
+
+    return df_final
