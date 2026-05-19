@@ -1,18 +1,20 @@
-from scraper.cnn_scraper import extrair_jogadores
+from scraper.worldcup_wikipedia import extrair_squads
 from generators.excel_generator import salvar_excel
 
 
 def main():
 
-    print("🌎 Iniciando pipeline da Copa 2026...\n")
+    print("🌎 Iniciando pipeline (Fonte: Wikipedia)...\n")
 
-    df = extrair_jogadores()
+    df = extrair_squads()
 
     print(df.head())
 
+    print(f"\n📊 Total jogadores: {len(df)}")
+
     salvar_excel(df)
 
-    print("\n✅ Processo concluído com sucesso!")
+    print("\n✅ Pipeline finalizado com sucesso!")
 
 
 if __name__ == "__main__":
