@@ -37,19 +37,71 @@ def limpar_nome(nome):
     return nome.strip()
 
 
+def eh_grupo(texto):
+
+    return texto.startswith("Grupo ")
+
+
 def eh_pre_lista(texto):
 
-    texto = texto.lower()
+    return "(pré-lista)" in texto.lower()
 
-    palavras = [
-        "pré-lista",
-        "pre-lista",
-        "lista preliminar",
-        "possíveis convocados",
-        "aguardando convocação"
-    ]
 
-    return any(p in texto for p in palavras)
+def eh_selecao(texto):
+
+    texto = texto.strip()
+
+    if ":" in texto:
+        return False
+
+    if eh_grupo(texto):
+        return False
+
+    if len(texto) > 40:
+        return False
+
+    return True
+
+
+def processar_linha_jogadores(
+    linha,
+    selecao,
+    dados
+):
+
+    for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
+
+        prefixo = f"{categoria_texto}:"
+
+        if linha.startswith(prefixo):
+
+            jogadores_texto = linha.replace(
+                prefixo,
+                ""
+            ).strip()
+
+            jogadores_texto = jogadores_texto.replace(
+                " e ",
+                ", "
+            )
+
+            jogadores = jogadores_texto.split(",")
+
+            for jogador in jogadores:
+
+                jogador = limpar_nome(
+                    jogador
+                )
+
+                if not jogador:
+                    continue
+
+                dados.append({
+                    "selecao": selecao,
+                    "jogador": jogador,
+                    "posicao": categoria_texto,
+                    "categoria_base": categoria_base
+                })
 
 
 def extrair_jogadores():
@@ -67,84 +119,59 @@ def extrair_jogadores():
         "lxml"
     )
 
+    texto = soup.get_text("\n")
+
+    linhas = [
+        linha.strip()
+        for linha in texto.split("\n")
+        if linha.strip()
+    ]
+
     dados = []
 
     selecao_atual = None
 
-    artigos = soup.find_all(
-        ["h2", "h3", "p", "li"]
-    )
+    ignorar_bloco = False
 
-    for elemento in artigos:
+    for linha in linhas:
 
-        texto = elemento.get_text(
-            " ",
-            strip=True
-        )
-
-        if not texto:
-            continue
-
-        # Ignorar pré-listas
-        if eh_pre_lista(texto):
+        # Ignorar grupos
+        if eh_grupo(linha):
             continue
 
         # Detectar seleção
-        if elemento.name in ["h2", "h3"]:
+        if eh_selecao(linha):
 
-            texto_limpo = texto.strip()
+            if eh_pre_lista(linha):
 
-            if (
-                len(texto_limpo) <= 40
-                and ":" not in texto_limpo
-                and "grupo" not in texto_limpo.lower()
-                and "convocados" not in texto_limpo.lower()
-            ):
+                ignorar_bloco = True
 
-                selecao_atual = texto_limpo
+                selecao_atual = None
 
-                print(f"\n🌎 Seleção encontrada: {selecao_atual}")
+                print(f"⛔ Ignorando pré-lista: {linha}")
 
-        # Buscar jogadores
-        for categoria_texto, categoria_base in MAPA_CATEGORIAS.items():
+                continue
 
-            prefixo = f"{categoria_texto}:"
+            ignorar_bloco = False
 
-            if texto.startswith(prefixo):
+            selecao_atual = linha
 
-                jogadores_texto = texto.replace(
-                    prefixo,
-                    ""
-                ).strip()
+            print(f"🌎 Seleção encontrada: {linha}")
 
-                jogadores_texto = jogadores_texto.replace(
-                    " e ",
-                    ", "
-                )
+            continue
 
-                jogadores = jogadores_texto.split(",")
+        # Ignorar bloco inválido
+        if ignorar_bloco:
+            continue
 
-                for jogador in jogadores:
+        # Processar jogadores
+        if selecao_atual:
 
-                    jogador = limpar_nome(
-                        jogador
-                    )
-
-                    if len(jogador) <= 1:
-                        continue
-
-                    if jogador.lower() in [
-                        "nenhum",
-                        "não definido"
-                    ]:
-                        continue
-
-                    dados.append({
-                        "selecao": selecao_atual,
-                        "jogador": jogador,
-                        "posicao": categoria_texto,
-                        "categoria_base": categoria_base
-                    })
+            processar_linha_jogadores(
+                linha,
+                selecao_atual,
+                dados
+            )
 
     df = pd.DataFrame(dados)
 
