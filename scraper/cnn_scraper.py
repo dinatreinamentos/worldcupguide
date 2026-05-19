@@ -1,7 +1,6 @@
 import re
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 
 
 URL = "https://www.cnnbrasil.com.br/esportes/futebol/copa-do-mundo/listas-convocados-todas-48-selecoes-copa-do-mundo-2026/"
@@ -29,8 +28,27 @@ def limpar(texto):
     return texto.replace(".", "").replace(";", "").strip()
 
 
-def eh_pre_lista(texto):
-    return "(pré-lista)" in texto.lower()
+def eh_categoria(linha):
+    return any(linha.startswith(c + ":") for c in CATEGORIAS)
+
+
+def get_categoria(linha):
+    for c in CATEGORIAS:
+        if linha.startswith(c + ":"):
+            return c
+    return None
+
+
+def eh_selecao(linha):
+    if "(" in linha and "pré-lista" in linha.lower():
+        return False
+    if len(linha) > 50:
+        return False
+    if ":" in linha:
+        return False
+    if "grupo" in linha.lower():
+        return False
+    return True
 
 
 def extrair_jogadores():
@@ -38,69 +56,60 @@ def extrair_jogadores():
     r = requests.get(URL, headers=HEADERS, timeout=30)
     r.raise_for_status()
 
-    soup = BeautifulSoup(r.text, "lxml")
+    texto = r.text
+
+    # quebra tudo em linhas reais
+    linhas = [
+        l.strip()
+        for l in texto.split("\n")
+        if l.strip()
+    ]
 
     dados = []
 
-    selecao_atual = None
-    categoria_atual = None
+    selecao = None
     ignorar = False
 
-    # Trabalhar por blocos reais (parágrafos + headings)
-    elementos = soup.find_all(["h2", "h3", "p"])
+    for linha in linhas:
 
-    for el in elementos:
+        # Detecta seleção com pré-lista
+        if eh_selecao(linha):
 
-        texto = el.get_text(" ", strip=True)
+            selecao = linha
 
-        if not texto:
-            continue
-
-        # Detecta seleção (ex: "Coreia do Sul")
-        if el.name in ["h2", "h3"]:
-
-            if "(" in texto and "pré-lista" in texto.lower():
+            if "pré-lista" in linha.lower():
                 ignorar = True
-                selecao_atual = None
-                categoria_atual = None
-                continue
-
-            if len(texto) < 50 and "grupo" not in texto.lower():
-                selecao_atual = texto
+            else:
                 ignorar = False
 
             continue
 
-        if ignorar or not selecao_atual:
+        if ignorar:
             continue
 
-        # Detecta categoria
-        for cat in CATEGORIAS.keys():
+        # Detecta categorias
+        if eh_categoria(linha):
 
-            if texto.startswith(cat + ":"):
+            cat = get_categoria(linha)
 
-                categoria_atual = cat
+            bloco = linha.split(":", 1)[1]
 
-                jogadores_texto = texto.replace(cat + ":", "").strip()
+            bloco = bloco.replace(" e ", ",")
 
-                jogadores_texto = jogadores_texto.replace(" e ", ", ")
+            jogadores = [j.strip() for j in bloco.split(",")]
 
-                jogadores = jogadores_texto.split(",")
+            for j in jogadores:
 
-                for j in jogadores:
+                j = limpar(j)
 
-                    j = limpar(j)
+                if len(j) < 2:
+                    continue
 
-                    if len(j) < 2:
-                        continue
+                dados.append({
+                    "selecao": selecao,
+                    "jogador": j,
+                    "posicao": cat,
+                    "categoria_base": CATEGORIAS[cat]
+                })
 
-                    dados.append({
-                        "selecao": selecao_atual,
-                        "jogador": j,
-                        "posicao": cat,
-                        "categoria_base": CATEGORIAS[cat]
-                    })
-
-    df = pd.DataFrame(dados).drop_duplicates()
-
-    return df
+    return pd.DataFrame(dados).drop_duplicates()
