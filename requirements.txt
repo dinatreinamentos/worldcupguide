@@ -1,9 +1,5 @@
-requests
-beautifulsoup4
 pandas
 openpyxl
+beautifulsoup4
 lxml
 playwright
-rapidfuzz
-jinja2
-weasyprint
