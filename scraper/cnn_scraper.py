@@ -15,7 +15,32 @@ CATEGORIAS = {
 
 
 def limpar(texto):
-    return re.sub(r"\(.*?\)", "", texto).replace(".", "").replace(";", "").strip()
+    texto = re.sub(r"\(.*?\)", "", texto)
+    texto = texto.replace(".", "").replace(";", "").strip()
+    return texto
+
+
+def eh_categoria(linha):
+    return any(linha.startswith(cat + ":") for cat in CATEGORIAS)
+
+
+def get_categoria(linha):
+    for cat in CATEGORIAS:
+        if linha.startswith(cat + ":"):
+            return cat
+    return None
+
+
+def eh_selecao(linha):
+    if len(linha) > 60:
+        return False
+    if ":" in linha:
+        return False
+    if "Grupo" in linha:
+        return False
+    if "Copa do Mundo" in linha:
+        return False
+    return True
 
 
 def extrair_jogadores():
@@ -31,9 +56,12 @@ def extrair_jogadores():
 
         page = browser.new_page()
 
-        print("🌐 Abrindo página com Playwright...")
+        print("🌐 Abrindo página...")
 
-        page.goto(URL, wait_until="networkidle", timeout=60000)
+        page.goto(URL, timeout=60000, wait_until="domcontentloaded")
+
+        # ESSENCIAL: não usar networkidle (quebra no CNN)
+        page.wait_for_timeout(5000)
 
         html = page.content()
 
@@ -41,9 +69,10 @@ def extrair_jogadores():
 
     print("📄 HTML capturado com sucesso")
 
+    # quebra em texto puro
     linhas = re.split(r"<[^>]+>", html)
 
-    selecao = None
+    selecao_atual = None
 
     for linha in linhas:
 
@@ -52,33 +81,38 @@ def extrair_jogadores():
         if not linha:
             continue
 
-        # Detecta seleção (heurística simples)
-        if len(linha) < 50 and ":" not in linha and "Grupo" not in linha:
+        # detectar seleção
+        if eh_selecao(linha):
+            selecao_atual = linha
+            continue
 
-            selecao = linha
+        if not selecao_atual:
+            continue
 
-        # Detecta categorias
-        for cat in CATEGORIAS:
+        # detectar categoria + jogadores
+        if eh_categoria(linha):
 
-            if linha.startswith(cat + ":"):
+            cat = get_categoria(linha)
 
-                jogadores = linha.replace(cat + ":", "")
-                jogadores = jogadores.replace(" e ", ",")
-                jogadores = jogadores.split(",")
+            bloco = linha.split(":", 1)[1]
 
-                for j in jogadores:
+            bloco = bloco.replace(" e ", ",")
 
-                    j = limpar(j)
+            jogadores = bloco.split(",")
 
-                    if len(j) < 2:
-                        continue
+            for j in jogadores:
 
-                    dados.append({
-                        "selecao": selecao,
-                        "jogador": j,
-                        "posicao": cat,
-                        "categoria_base": CATEGORIAS[cat]
-                    })
+                j = limpar(j)
+
+                if len(j) < 2:
+                    continue
+
+                dados.append({
+                    "selecao": selecao_atual,
+                    "jogador": j,
+                    "posicao": cat,
+                    "categoria_base": CATEGORIAS[cat]
+                })
 
     df = pd.DataFrame(dados).drop_duplicates()
 
